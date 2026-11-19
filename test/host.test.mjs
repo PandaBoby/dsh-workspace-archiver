@@ -287,7 +287,9 @@ test('serves authenticated state and action routes', async () => {
     const stateRoute = routes.get('/api/workspace-archiver/state')
     const stateResponse = await stateRoute.fetch(new Request('http://local/api/workspace-archiver/state'))
     assert.equal(stateResponse.status, 200)
-    assert.deepEqual((await stateResponse.json()).hidden, [])
+    const initialState = await stateResponse.json()
+    assert.equal(initialState.ok, true)
+    assert.deepEqual(initialState.hidden, [])
 
     const actionRoute = routes.get('/api/workspace-archiver/action')
     const archiveResponse = await actionRoute.fetch(new Request('http://local/api/workspace-archiver/action', {

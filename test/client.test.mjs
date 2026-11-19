@@ -57,7 +57,9 @@ function installFetch({ hidden = [], archive = { body: { ok: true, archived: 3 }
       if (stateStatus !== 200) {
         return new Response(JSON.stringify({ ok: false }), { status: stateStatus })
       }
-      return new Response(JSON.stringify({ ok: true, hidden }), { status: 200 })
+      // Legacy Host shape: no `ok` flag. The client must still render the
+      // restore submenu.
+      return new Response(JSON.stringify({ hidden }), { status: 200 })
     }
     if (url.endsWith('/api/workspace-archiver/action')) {
       const payload = JSON.parse(String(init.body))

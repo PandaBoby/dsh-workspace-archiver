@@ -147,7 +147,9 @@ window.__ModuleLoader__.load({
      */
     async function fetchHidden(signal) {
       const { response, body } = await requestJson(STATE_PATH, signal === undefined ? {} : { signal })
-      if (!response.ok || body?.ok !== true || !Array.isArray(body.hidden)) {
+      // Host 0.3.0 returned {hidden} without `ok`; accept both shapes so a
+      // client update works against a running older Host.
+      if (!response.ok || !Array.isArray(body?.hidden)) {
         throw new Error(`workspace-archiver state failed (${response.status})`)
       }
       return body.hidden.filter(record => (

@@ -94,12 +94,12 @@ export class WorkspaceArchiver {
 
   /**
    * Hidden workspace summaries, oldest first.
-   * @returns {Promise<{ hidden: HiddenSummary[] }>}
+   * @returns {Promise<{ ok: true, hidden: HiddenSummary[] }>}
    */
   async state() {
     const records = await this.store.list()
     records.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-    return { hidden: records.map(WorkspaceArchiver.summarize) }
+    return { ok: true, hidden: records.map(WorkspaceArchiver.summarize) }
   }
 
   /**

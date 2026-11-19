@@ -1,6 +1,6 @@
 {
   "name": "dsh-workspace-archiver",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "DSH bundle that archives a workspace, hides its sidebar row, and restores the workspace with its sessions from a Host-held record.",
   "type": "module",
   "main": "index.js",

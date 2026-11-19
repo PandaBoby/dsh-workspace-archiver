@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-19
+
+### Fixed
+
+- Restore submenu disappeared because the Host state route returned `{hidden}` while
+  the Client required `ok: true`. The route now returns `ok: true`, and the Client also
+  accepts the legacy `{hidden}` shape so a client update works against a running older
+  Host.
+- Added a Host route assertion for the `ok` flag and a Client test for the legacy shape.
+
 ## [0.3.0] - 2026-11-19
 
 ### Added
