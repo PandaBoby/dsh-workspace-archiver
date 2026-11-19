@@ -1,1 +1,1 @@
-![A workspace row's context menu in the sidebar, with the archive action highlighted](preview.svg)
+![A workspace row's context menu with the archive-and-hide action highlighted](preview.svg)

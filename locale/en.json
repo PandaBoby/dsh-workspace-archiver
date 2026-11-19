@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Workspace archiver",
-    "description": "Adds “Archive sessions in this workspace” to a workspace row's context menu (right-click or the … button) in the sidebar. It archives every unarchived session of that workspace through the official archive UI service, reports the outcome in a notice, and offers Undo. Sessions with running work are skipped rather than stopped. The workspace row itself stays: DSH has no workspace-level hide, so a workspace whose sessions are all archived remains as an empty group. Undo exists because workspaceRegistry.unarchiveSession is a real DSH API.",
+    "description": "Adds “Archive and hide this workspace” to a workspace row's context menu (right-click or the … button) in the sidebar. It archives every unarchived session of that workspace, then removes the workspace registration so the row disappears; the directory and all session logs are kept. If any session cannot be archived (running work or missing permission), the workspace is left in place and the notice reports how many sessions blocked the action. This is a one-way archive: re-adding the directory creates a new empty workspace, and old sessions are not reattached. The shipped Delete workspace action removes the registration without archiving sessions.",
     "detail": "docs/DETAIL.md"
   }
 }

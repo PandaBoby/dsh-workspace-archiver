@@ -3,7 +3,7 @@
 ## Supported versions
 
 Security fixes are applied to the latest published minor line. The repository is
-currently on the 0.1.x line; older snapshots may not receive fixes.
+currently on the 0.2.x line; older snapshots may not receive fixes.
 
 ## Reporting a vulnerability
 
@@ -19,26 +19,29 @@ No response-time or bounty guarantee is implied.
 
 ## Scope and boundaries
 
-This bundle archives and unarchives sessions that already exist in the user's
-DSH profile. It does not add a privilege boundary of its own:
+This bundle archives a workspace's sessions and removes the workspace
+registration. It does not add a privilege boundary of its own:
 
 - It reads workspace rows, session ids, and the registry-global archive set
   through `ctx.workspaces.list`.
-- It calls `ctx.uiWorkspace.archiveSession` / `unarchiveSession`, which reach the
-  Host Workspace Controller through the generated Remote endpoint. **The Host
-  enforces the current peer's permissions**; the plugin cannot archive a session
-  the peer is not allowed to archive.
+- It calls `ctx.uiWorkspace.archiveSession` and `ctx.workspaces.delete`, which
+  reach the Host Workspace Controller through generated Remote endpoints. **The
+  Host enforces the current peer's permissions**; the plugin cannot archive or
+  delete a workspace the peer is not allowed to operate on.
 - It does not read files, credentials, environment variables, or network
   resources, and it does not send data anywhere.
-- Archiving removes sessions from the default sidebar view and retains their
-  logs and workspace accounting. It does not delete files or session history.
+- Removing the registration keeps the directory and every session log. It does
+  **not** delete files or session history.
 - It never passes `stopActivity: true`. Sessions with running work are refused by
-  the Host and counted in the notice instead of being stopped.
+  the Host; if any archive fails, the workspace is left in place and the notice
+  reports the blocked count.
+- The archive set is global. Unarchiving an old session after the workspace was
+  removed puts it under Ungrouped; membership is not restored by any public API.
 
-The one risky operation is bulk archive: a single click can clear a workspace's
-session list. It is reversible through the notice's **Undo** or the archived
-view, but the notice is transient. Treat a report about an unintended archive as
-a usability bug unless it also demonstrates a permission bypass.
+The risky operation is workspace removal: a single click archives the
+workspace's sessions and deletes its registration. The row disappears and
+**cannot be restored through a public API**; re-adding the directory creates a
+new, empty workspace. Treat a directory/data backup as part of archiving.
 
 Out of scope: a compromised OS account or browser, a malicious DSH build or
 another plugin running with the same privileges, DevTools manipulation while the

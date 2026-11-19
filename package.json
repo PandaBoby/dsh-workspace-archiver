@@ -1,7 +1,7 @@
 {
   "name": "dsh-workspace-archiver",
-  "version": "0.1.0",
-  "description": "DSH bundle that archives every session of one workspace from the workspace row's context menu, with an undo notice.",
+  "version": "0.2.0",
+  "description": "DSH bundle that archives a workspace's sessions and hides its sidebar row by removing the workspace registration.",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -56,6 +56,7 @@
     "dsh-bundle",
     "workspace",
     "archive",
+    "hide-workspace",
     "context-menu",
     "sidebar"
   ],

@@ -1,27 +1,32 @@
 /**
  * dsh-workspace-archiver — browser half, zero-build bundle.
  *
- * Registers one structured action on a workspace row's context menu through
- * `ctx.contextMenus`. DSH 0.2.2-rc.5 exposes no `sidebar.workspaces.menu.item`
- * and no `ctx.ui` service; the workspace row dispatches `{ kind: 'workspace' }`
- * itself (`dsh-client-ui-workspace/src/client/rows/Rows.tsx`), so a contribution
- * for that target appears in the row's `…` menu and on right-click without a
- * component of ours.
+ * Archives a workspace row: every unarchived session of the workspace is
+ * archived, then the workspace registration is removed, so the row actually
+ * leaves the sidebar. DSH has no workspace-level archive API; removing the
+ * registration is the only public operation that makes the row disappear.
  *
- * A click runs in the Client tree, so it cannot call Host services. Archive and
- * restore use the official UI seam `ctx.uiWorkspace` — the same service the
- * shipped archive button calls. It delegates to the Workspace Controller, which
- * reaches the Host through the generated `workspace/archiveSession` Remote and
- * lands on `workspaceRegistry.archiveSession` behind the normal permission
- * checks; it also clears the conversation panel when the archived Session is
- * the open one. State reads use `ctx.workspaces.list`.
+ * The two steps use official seams:
+ * - `ctx.uiWorkspace.archiveSession` — the same UI service the shipped archive
+ *   button calls; it also clears the conversation panel when the archived
+ *   Session is open.
+ * - `ctx.workspaces.delete` — the Client face of the shipped **Delete
+ *   workspace** action; the Host keeps the directory and every session log.
  *
- * Deliberate limits:
- * - Sessions with running work are refused, not stopped, and counted in the
- *   notice; DSH's own archive flow asks the user to confirm that per Session.
- * - The workspace row remains after every member is archived: DSH derives one
- *   group per registered workspace (`dsh-client-ui-workspace/src/client/tree.ts`,
- *   `groupByWorkspace`), so this action clears the session list, not the folder.
+ * Order matters: sessions are archived first. If any archive is refused (a
+ * running session, a missing permission), the workspace is left in place and
+ * the notice reports how many sessions blocked the action. Only a fully
+ * archived workspace is removed, so a failed run can never leave unarchived
+ * sessions stranded under Ungrouped.
+ *
+ * Limits (also in README):
+ * - The registration cannot be hidden in place, so this is a one-way archive.
+ *   Re-adding the directory creates a new, empty workspace; old sessions stay
+ *   archived and fall under Ungrouped if unarchived. Membership is not
+ *   restored by any public Client API.
+ * - Sessions with running work are refused, not stopped. DSH's own per-session
+ *   archive flow asks the user to confirm stopping work; this bundle does not
+ *   stop it silently.
  *
  * Everything lives inside `factory` on purpose: combo responses concatenate
  * several bundle scripts, so a bundle must not add top-level bindings.
@@ -37,6 +42,7 @@
  * @typedef {object} MenuAction
  * @property {string} id
  * @property {string} label
+ * @property {boolean} [danger]
  * @property {() => void | Promise<void>} [run]
  *
  * @typedef {object} WorkspaceMenuContribution
@@ -48,15 +54,14 @@
  *
  * @typedef {object} ClientContext
  * @property {(callback: () => any, label?: string) => any} effect
- * @property {{ list: { getSnapshot(): WorkspaceSnapshot, subscribe(listener: () => void): () => void } }} workspaces
- * @property {{ archiveSession(id: string, options?: { stopActivity?: boolean }): Promise<void>, unarchiveSession(id: string): Promise<void> }} uiWorkspace
+ * @property {{
+ *   list: { getSnapshot(): WorkspaceSnapshot, subscribe(listener: () => void): () => void },
+ *   delete(workspaceId: string): Promise<void>,
+ * }} workspaces
+ * @property {{ archiveSession(id: string, options?: { stopActivity?: boolean }): Promise<void> }} uiWorkspace
  * @property {{
  *   register(contribution: WorkspaceMenuContribution): () => void,
- *   notify(text: string, success?: boolean, action?: {
- *     label: string,
- *     run: () => void | Promise<void>,
- *     failureLabel: string,
- *   }): void,
+ *   notify(text: string, success?: boolean): void,
  * }} contextMenus
  * @property {{
  *   bind(ns: string): Translate,
@@ -81,32 +86,32 @@ window.__ModuleLoader__.load({
      * @type {Record<string, string>}
      */
     const en = {
-      'menu.archive.one': 'Archive the session in this workspace',
-      'menu.archive.other': 'Archive {n} sessions in this workspace',
-      'toast.archived.one': 'Archived 1 session',
-      'toast.archived.other': 'Archived {n} sessions',
-      'toast.partial': 'Archived {n} of {total} sessions; {skipped} still running or failed',
-      'toast.none': 'Nothing was archived; {skipped} session(s) still running or failed',
-      'toast.undo': 'Undo',
-      'toast.undoFailed': 'Could not undo the archive',
+      'menu.hide': 'Hide this workspace',
+      'menu.archive.one': 'Archive and hide this workspace (1 session)',
+      'menu.archive.other': 'Archive and hide this workspace ({n} sessions)',
+      'toast.hidden': 'Workspace hidden; its directory and session logs are kept',
+      'toast.archived.one': 'Archived 1 session and hid the workspace; its directory and logs are kept',
+      'toast.archived.other': 'Archived {n} sessions and hid the workspace; its directory and logs are kept',
+      'toast.blocked': 'Workspace not hidden: {n} session(s) could not be archived (still running?)',
+      'toast.removeFailed': 'Sessions were archived, but removing the workspace registration failed',
     }
 
     /** @type {Record<string, string>} */
     const zh = {
-      'menu.archive.one': '归档此工作区中的会话',
-      'menu.archive.other': '归档此工作区中的 {n} 个会话',
-      'toast.archived.one': '已归档 1 个会话',
-      'toast.archived.other': '已归档 {n} 个会话',
-      'toast.partial': '已归档 {n}/{total} 个会话；{skipped} 个仍在运行或归档失败',
-      'toast.none': '未归档任何会话；{skipped} 个仍在运行或归档失败',
-      'toast.undo': '撤销',
-      'toast.undoFailed': '撤销归档失败',
+      'menu.hide': '隐藏此工作区',
+      'menu.archive.one': '归档并隐藏此工作区（1 个会话）',
+      'menu.archive.other': '归档并隐藏此工作区（{n} 个会话）',
+      'toast.hidden': '已隐藏工作区；目录与会话日志保留',
+      'toast.archived.one': '已归档 1 个会话并隐藏工作区；目录与日志保留',
+      'toast.archived.other': '已归档 {n} 个会话并隐藏工作区；目录与日志保留',
+      'toast.blocked': '未隐藏工作区：{n} 个会话未能归档（可能仍在运行）',
+      'toast.removeFailed': '会话已归档，但移除工作区注册失败',
     }
 
     /**
      * One archive run per workspace at a time. A second click while the first
-     * run still awaits the Host would archive the same ids again: idempotent,
-     * but it would post a second notice and a second undo.
+     * run still awaits the Host would archive/delete twice; the duplicate is
+     * dropped instead.
      * @type {Set<string>}
      */
     const inFlight = new Set()
@@ -128,52 +133,47 @@ window.__ModuleLoader__.load({
           const snapshot = ctx.workspaces.list.getSnapshot()
           const workspace = snapshot.items.find(item => item.workspaceId === workspaceId)
           if (workspace === undefined) return []
-          // Archived sessions are already hidden from the default view;
-          // counting them again would promise work the action will not do.
+          // Archived sessions are already hidden from the default view; only
+          // the remaining ones decide how much work the action performs.
           const archived = new Set(snapshot.archivedSessionIds)
           const sessionIds = workspace.sessionIds.filter(id => !archived.has(id))
-          if (sessionIds.length === 0) return []
           return [{
             id: 'archive-workspace',
-            label: t(sessionIds.length === 1 ? 'menu.archive.one' : 'menu.archive.other', { n: sessionIds.length }),
-            run: () => archiveWorkspaceSessions(ctx, t, workspaceId, sessionIds),
+            danger: true,
+            label: sessionIds.length === 0
+              ? t('menu.hide')
+              : t(sessionIds.length === 1 ? 'menu.archive.one' : 'menu.archive.other', { n: sessionIds.length }),
+            run: () => archiveWorkspace(ctx, t, workspaceId, sessionIds),
           }]
         },
       }
     }
 
     /**
-     * Archive every candidate, one Remote call at a time.
+     * Archive every remaining session, then remove the workspace registration.
      *
-     * Sequential on purpose: each `workspace/archiveSession` reply carries the
-     * complete archive set, and the Client model installs only the newest reply
-     * (`archiveRequestSeq` in `dsh-api-workspace-controller/client/model.ts`).
-     * Parallel calls make that projection depend on reply order; `await`
-     * removes the question and bounds the work sent to one Host.
-     *
-     * Failures are collected, never thrown out of the click handler: a running
-     * Session refuses with `workspace/session-active` and must not abort the
-     * rest. Details go to the console; the notice carries counts and Undo.
+     * The registration is removed only when every archive succeeded: a failed
+     * archive must not leave unarchived sessions stranded under Ungrouped. Each
+     * refusal is logged with its session id; the notice carries the count.
      * @param {ClientContext} ctx
      * @param {Translate} t
      * @param {string} workspaceId
      * @param {readonly string[]} sessionIds
      */
-    async function archiveWorkspaceSessions(ctx, t, workspaceId, sessionIds) {
+    async function archiveWorkspace(ctx, t, workspaceId, sessionIds) {
       if (inFlight.has(workspaceId)) return
       inFlight.add(workspaceId)
       try {
-        /** @type {string[]} */
-        const archived = []
         /** @type {Array<{ sessionId: string, reason: unknown }>} */
         const failures = []
+        let archived = 0
         for (const sessionId of sessionIds) {
           try {
             // No `stopActivity`: the Host refuses a busy Session instead of
-            // interrupting it. Bulk-stopping running work is exactly the step
-            // DSH asks the user to confirm per Session.
+            // interrupting it. Stopping work is a per-session confirmation in
+            // DSH's own archive flow, not something a bulk click should do.
             await ctx.uiWorkspace.archiveSession(sessionId)
-            archived.push(sessionId)
+            archived += 1
           } catch (reason) {
             failures.push({ sessionId, reason })
           }
@@ -181,44 +181,26 @@ window.__ModuleLoader__.load({
         for (const failure of failures) {
           console.warn(`[workspace-archiver] could not archive ${failure.sessionId}:`, failure.reason)
         }
-        if (archived.length === 0) {
-          ctx.contextMenus.notify(t('toast.none', { skipped: failures.length }), false)
+        if (failures.length > 0) {
+          ctx.contextMenus.notify(t('toast.blocked', { n: failures.length }), false)
+          return
+        }
+        try {
+          await ctx.workspaces.delete(workspaceId)
+        } catch (reason) {
+          console.warn('[workspace-archiver] could not remove the workspace registration:', reason)
+          ctx.contextMenus.notify(t('toast.removeFailed'), false)
           return
         }
         ctx.contextMenus.notify(
-          failures.length === 0
-            ? t(archived.length === 1 ? 'toast.archived.one' : 'toast.archived.other', { n: archived.length })
-            : t('toast.partial', { n: archived.length, total: sessionIds.length, skipped: failures.length }),
+          archived === 0
+            ? t('toast.hidden')
+            : t(archived === 1 ? 'toast.archived.one' : 'toast.archived.other', { n: archived }),
           true,
-          {
-            label: t('toast.undo'),
-            failureLabel: t('toast.undoFailed'),
-            run: () => unarchiveAll(ctx, archived),
-          },
         )
       } finally {
         inFlight.delete(workspaceId)
       }
-    }
-
-    /**
-     * Undo one run by unarchiving exactly the ids that run archived. Every id
-     * is attempted before the first failure is rethrown, so one missing entry
-     * cannot strand the rest of the batch.
-     * @param {ClientContext} ctx
-     * @param {readonly string[]} sessionIds
-     */
-    async function unarchiveAll(ctx, sessionIds) {
-      /** @type {unknown} */
-      let firstFailure
-      for (const sessionId of sessionIds) {
-        try {
-          await ctx.uiWorkspace.unarchiveSession(sessionId)
-        } catch (reason) {
-          firstFailure ??= reason
-        }
-      }
-      if (firstFailure !== undefined) throw firstFailure
     }
 
     return {

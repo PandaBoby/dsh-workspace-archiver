@@ -2,7 +2,8 @@
 
 Thanks for improving `dsh-workspace-archiver`. This project is a DSH bundle with a
 zero-build Client half: `index.js` and `client.js` are the source and the shipped
-artifacts at the same time. Keep changes focused; user-visible behavior needs a test.
+artifacts at the same time. The plugin archives a workspace's sessions and removes
+its registration; keep that destructive path conservative and tested.
 
 ## Setup
 
@@ -50,8 +51,9 @@ Open one PR with the new README and the language-bar updates.
 
 Add or update tests when changing:
 
-- the context-menu target, order, label, or visibility rules;
-- the archive loop, duplicate-run guard, partial-failure counts, or undo;
+- the context-menu target, order, label, danger styling, or visibility rules;
+- the archive-then-delete sequence, abort-on-failure behavior, registration
+  removal, or duplicate-run guard;
 - dictionary keys or language coverage;
 - `package.json`, the bundle patch, locale metadata, the icon, or the detail image.
 
@@ -82,7 +84,8 @@ Be respectful and constructive; see [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
 - Run `npm pack --dry-run` and confirm the runtime files, `docs/`, locale files,
   and icon are included, and `dev.patch.yml` is not.
 - Install the packed or linked bundle in a scratch profile and verify the menu,
-  notice, undo, and detail page (see `docs/verification.md`).
+  row removal, notice, blocked-running-session behavior, and detail page (see
+  `docs/verification.md`).
 
 ## Security reports
 
