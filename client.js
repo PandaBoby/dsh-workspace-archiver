@@ -1,32 +1,22 @@
 /**
  * dsh-workspace-archiver — browser half, zero-build bundle.
  *
- * Archives a workspace row: every unarchived session of the workspace is
- * archived, then the workspace registration is removed, so the row actually
- * leaves the sidebar. DSH has no workspace-level archive API; removing the
- * registration is the only public operation that makes the row disappear.
+ * Adds a workspace-level archive action and a restore submenu to a workspace
+ * row's context menu:
  *
- * The two steps use official seams:
- * - `ctx.uiWorkspace.archiveSession` — the same UI service the shipped archive
- *   button calls; it also clears the conversation panel when the archived
- *   Session is open.
- * - `ctx.workspaces.delete` — the Client face of the shipped **Delete
- *   workspace** action; the Host keeps the directory and every session log.
+ * - **Archive and hide** posts to the Host route. The Host archives every
+ *   member session, persists the membership, then removes the workspace
+ *   registration; the row disappears. A blocked session leaves the workspace in
+ *   place, so no unarchived session is stranded.
+ * - **Restore archived workspace** lists Host-held hidden records and recreates
+ *   the row, reattaching the stored sessions in the Host. The submenu lives on
+ *   any visible workspace row; when every row is hidden, the Host command
+ *   `/workspace-archiver` lists and restores them.
  *
- * Order matters: sessions are archived first. If any archive is refused (a
- * running session, a missing permission), the workspace is left in place and
- * the notice reports how many sessions blocked the action. Only a fully
- * archived workspace is removed, so a failed run can never leave unarchived
- * sessions stranded under Ungrouped.
- *
- * Limits (also in README):
- * - The registration cannot be hidden in place, so this is a one-way archive.
- *   Re-adding the directory creates a new, empty workspace; old sessions stay
- *   archived and fall under Ungrouped if unarchived. Membership is not
- *   restored by any public Client API.
- * - Sessions with running work are refused, not stopped. DSH's own per-session
- *   archive flow asks the user to confirm stopping work; this bundle does not
- *   stop it silently.
+ * The browser never touches `workspaceRegistry` or the session store: the
+ * authenticated Host route owns the operation. The Client reads workspace rows
+ * and archive state from `ctx.workspaces.list`, copy from `ctx.locale`, and
+ * shows results through `ctx.contextMenus`.
  *
  * Everything lives inside `factory` on purpose: combo responses concatenate
  * several bundle scripts, so a bundle must not add top-level bindings.
@@ -36,13 +26,15 @@
  * @typedef {(key: string, params?: Record<string, unknown>) => string} Translate
  *
  * @typedef {object} WorkspaceSnapshot
- * @property {ReadonlyArray<{ workspaceId: string, sessionIds: readonly string[] }>} items
+ * @property {ReadonlyArray<{ workspaceId: string, path: string, sessionIds: readonly string[] }>} items
  * @property {readonly string[]} archivedSessionIds
  *
  * @typedef {object} MenuAction
  * @property {string} id
  * @property {string} label
  * @property {boolean} [danger]
+ * @property {boolean} [separatorBefore]
+ * @property {readonly MenuAction[]} [children]
  * @property {() => void | Promise<void>} [run]
  *
  * @typedef {object} WorkspaceMenuContribution
@@ -50,15 +42,19 @@
  * @property {'workspace'} target
  * @property {number} order
  * @property {(target: { workspaceId: string }) => readonly unknown[]} [observe]
- * @property {(target: { workspaceId: string }) => readonly MenuAction[]} resolve
+ * @property {(target: { workspaceId: string }, signal: AbortSignal) => Promise<readonly MenuAction[]>} resolve
+ *
+ * @typedef {object} HiddenSummary
+ * @property {string} id
+ * @property {string} title
+ * @property {string} path
+ * @property {number} sessionCount
  *
  * @typedef {object} ClientContext
  * @property {(callback: () => any, label?: string) => any} effect
- * @property {{
- *   list: { getSnapshot(): WorkspaceSnapshot, subscribe(listener: () => void): () => void },
- *   delete(workspaceId: string): Promise<void>,
- * }} workspaces
- * @property {{ archiveSession(id: string, options?: { stopActivity?: boolean }): Promise<void> }} uiWorkspace
+ * @property {{ list: { getSnapshot(): WorkspaceSnapshot, subscribe(listener: () => void): () => void } }} workspaces
+ * @property {{ list: { getSnapshot(): { byId: Record<string, { id: string, retainedBy?: { mainView?: number } }> } } }} sessions
+ * @property {{ archiveSession(id: string): Promise<void> }} uiWorkspace
  * @property {{
  *   register(contribution: WorkspaceMenuContribution): () => void,
  *   notify(text: string, success?: boolean): void,
@@ -76,6 +72,8 @@ window.__ModuleLoader__.load({
   factory() {
     const PLUGIN_ID = 'dsh-workspace-archiver'
     const NS = 'workspace-archiver'
+    const STATE_PATH = '/api/workspace-archiver/state'
+    const ACTION_PATH = '/api/workspace-archiver/action'
 
     /** Ascending menu order: after Rename (100), before Delete (300). */
     const MENU_ORDER = 200
@@ -89,11 +87,17 @@ window.__ModuleLoader__.load({
       'menu.hide': 'Hide this workspace',
       'menu.archive.one': 'Archive and hide this workspace (1 session)',
       'menu.archive.other': 'Archive and hide this workspace ({n} sessions)',
-      'toast.hidden': 'Workspace hidden; its directory and session logs are kept',
-      'toast.archived.one': 'Archived 1 session and hid the workspace; its directory and logs are kept',
-      'toast.archived.other': 'Archived {n} sessions and hid the workspace; its directory and logs are kept',
+      'menu.restore': 'Restore archived workspace ({n})',
+      'menu.restoreItem': '{title} ({n} sessions)',
+      'toast.hidden': 'Workspace hidden; its directory, logs, and restore record are kept',
+      'toast.archived.one': 'Archived 1 session and hid the workspace; restore it from a workspace menu',
+      'toast.archived.other': 'Archived {n} sessions and hid the workspace; restore it from a workspace menu',
       'toast.blocked': 'Workspace not hidden: {n} session(s) could not be archived (still running?)',
-      'toast.removeFailed': 'Sessions were archived, but removing the workspace registration failed',
+      'toast.notFound': 'The workspace is no longer available; reload the page',
+      'toast.failed': 'The workspace operation failed; see the console for details',
+      'toast.restored': 'Workspace restored with {n} session(s)',
+      'toast.restoredPartial': 'Workspace restored with {n} session(s); {m} could not be reattached',
+      'toast.restoreFailed': 'Restoring the workspace failed; see the console for details',
     }
 
     /** @type {Record<string, string>} */
@@ -101,24 +105,159 @@ window.__ModuleLoader__.load({
       'menu.hide': '隐藏此工作区',
       'menu.archive.one': '归档并隐藏此工作区（1 个会话）',
       'menu.archive.other': '归档并隐藏此工作区（{n} 个会话）',
-      'toast.hidden': '已隐藏工作区；目录与会话日志保留',
-      'toast.archived.one': '已归档 1 个会话并隐藏工作区；目录与日志保留',
-      'toast.archived.other': '已归档 {n} 个会话并隐藏工作区；目录与日志保留',
+      'menu.restore': '恢复已归档工作区（{n}）',
+      'menu.restoreItem': '{title}（{n} 个会话）',
+      'toast.hidden': '已隐藏工作区；目录、日志与恢复记录保留',
+      'toast.archived.one': '已归档 1 个会话并隐藏工作区；可在工作区菜单中恢复',
+      'toast.archived.other': '已归档 {n} 个会话并隐藏工作区；可在工作区菜单中恢复',
       'toast.blocked': '未隐藏工作区：{n} 个会话未能归档（可能仍在运行）',
-      'toast.removeFailed': '会话已归档，但移除工作区注册失败',
+      'toast.notFound': '工作区已不存在，请刷新页面',
+      'toast.failed': '工作区操作失败；详情见控制台',
+      'toast.restored': '已恢复工作区，重新挂载 {n} 个会话',
+      'toast.restoredPartial': '已恢复工作区并重新挂载 {n} 个会话；{m} 个未能挂回',
+      'toast.restoreFailed': '恢复工作区失败；详情见控制台',
+    }
+
+    /** Prevent a duplicate click while one operation for the same target is pending. @type {Set<string>} */
+    const busy = new Set()
+
+    /**
+     * @param {string} path
+     * @param {object} [init]
+     * @returns {Promise<{ response: Response, body: any }>}
+     */
+    async function requestJson(path, init) {
+      const response = await fetch(path, {
+        cache: 'no-store',
+        headers: { accept: 'application/json' },
+        ...init,
+      })
+      let body
+      try {
+        body = await response.json()
+      } catch {
+        body = undefined
+      }
+      return { response, body }
     }
 
     /**
-     * One archive run per workspace at a time. A second click while the first
-     * run still awaits the Host would archive/delete twice; the duplicate is
-     * dropped instead.
-     * @type {Set<string>}
+     * @param {AbortSignal} [signal]
+     * @returns {Promise<HiddenSummary[]>}
      */
-    const inFlight = new Set()
+    async function fetchHidden(signal) {
+      const { response, body } = await requestJson(STATE_PATH, signal === undefined ? {} : { signal })
+      if (!response.ok || body?.ok !== true || !Array.isArray(body.hidden)) {
+        throw new Error(`workspace-archiver state failed (${response.status})`)
+      }
+      return body.hidden.filter(record => (
+        record !== null
+        && typeof record === 'object'
+        && typeof record.id === 'string'
+        && typeof record.title === 'string'
+        && typeof record.path === 'string'
+        && typeof record.sessionCount === 'number'
+      ))
+    }
+
+    /**
+     * @param {object} payload
+     * @returns {Promise<{ response: Response, body: any }>}
+     */
+    function postAction(payload) {
+      return requestJson(ACTION_PATH, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify(payload),
+      })
+    }
+
+    /**
+     * @param {ClientContext} ctx
+     * @param {Translate} t
+     * @param {string} workspaceId
+     * @param {readonly string[]} memberIds
+     */
+    async function archiveWorkspace(ctx, t, workspaceId, memberIds) {
+      const key = `archive:${workspaceId}`
+      if (busy.has(key)) return
+      busy.add(key)
+      try {
+        const { response, body } = await postAction({ action: 'archive', workspaceId })
+        if (!response.ok || body?.ok !== true) {
+          if (body?.code === 'workspace/blocked') {
+            const count = Array.isArray(body.failures) ? body.failures.length : 0
+            ctx.contextMenus.notify(t('toast.blocked', { n: count }), false)
+          } else if (body?.code === 'workspace/not-found') {
+            ctx.contextMenus.notify(t('toast.notFound'), false)
+          } else {
+            ctx.contextMenus.notify(t('toast.failed'), false)
+          }
+          console.warn('[workspace-archiver] archive failed:', body)
+          return
+        }
+        // The Host already archived every member. If the conversation panel is
+        // showing one of them, ask the official UI service once so the panel
+        // clears; the call is idempotent on an archived session.
+        const current = Object.values(ctx.sessions.list.getSnapshot().byId)
+          .find(session => (session.retainedBy?.mainView ?? 0) > 0)?.id
+        if (current !== undefined && memberIds.includes(current)) {
+          try {
+            await ctx.uiWorkspace.archiveSession(current)
+          } catch (error) {
+            console.warn('[workspace-archiver] could not clear the open session view:', error)
+          }
+        }
+        ctx.contextMenus.notify(
+          body.archived === 0
+            ? t('toast.hidden')
+            : t(body.archived === 1 ? 'toast.archived.one' : 'toast.archived.other', { n: body.archived }),
+          true,
+        )
+      } catch (error) {
+        console.warn('[workspace-archiver] archive request failed:', error)
+        ctx.contextMenus.notify(t('toast.failed'), false)
+      } finally {
+        busy.delete(key)
+      }
+    }
+
+    /**
+     * @param {ClientContext} ctx
+     * @param {Translate} t
+     * @param {HiddenSummary} record
+     */
+    async function restoreWorkspace(ctx, t, record) {
+      const key = `restore:${record.id}`
+      if (busy.has(key)) return
+      busy.add(key)
+      try {
+        const { response, body } = await postAction({ action: 'restore', hiddenId: record.id })
+        if (!response.ok || body?.ok !== true) {
+          ctx.contextMenus.notify(t('toast.restoreFailed'), false)
+          console.warn('[workspace-archiver] restore failed:', body)
+          return
+        }
+        const failed = Array.isArray(body.failures) ? body.failures.length : 0
+        ctx.contextMenus.notify(
+          failed === 0
+            ? t('toast.restored', { n: body.attached })
+            : t('toast.restoredPartial', { n: body.attached, m: failed }),
+          true,
+        )
+      } catch (error) {
+        console.warn('[workspace-archiver] restore request failed:', error)
+        ctx.contextMenus.notify(t('toast.restoreFailed'), false)
+      } finally {
+        busy.delete(key)
+      }
+    }
 
     /**
      * Build the contribution. `observe` re-resolves the item when the archive
-     * set or the language changes while the menu is open.
+     * set or the language changes while the menu is open. The restore submenu
+     * refreshes from the Host route on every open, so a restore from another
+     * surface is never stale.
      * @param {ClientContext} ctx
      * @param {Translate} t
      * @returns {WorkspaceMenuContribution}
@@ -129,83 +268,51 @@ window.__ModuleLoader__.load({
         target: 'workspace',
         order: MENU_ORDER,
         observe: () => [ctx.workspaces.list, ctx.locale],
-        resolve: ({ workspaceId }) => {
+        resolve: async ({ workspaceId }, signal) => {
           const snapshot = ctx.workspaces.list.getSnapshot()
           const workspace = snapshot.items.find(item => item.workspaceId === workspaceId)
           if (workspace === undefined) return []
-          // Archived sessions are already hidden from the default view; only
-          // the remaining ones decide how much work the action performs.
           const archived = new Set(snapshot.archivedSessionIds)
           const sessionIds = workspace.sessionIds.filter(id => !archived.has(id))
-          return [{
+
+          /** @type {MenuAction[]} */
+          const actions = [{
             id: 'archive-workspace',
             danger: true,
             label: sessionIds.length === 0
               ? t('menu.hide')
               : t(sessionIds.length === 1 ? 'menu.archive.one' : 'menu.archive.other', { n: sessionIds.length }),
-            run: () => archiveWorkspace(ctx, t, workspaceId, sessionIds),
+            run: () => archiveWorkspace(ctx, t, workspaceId, [...workspace.sessionIds]),
           }]
-        },
-      }
-    }
 
-    /**
-     * Archive every remaining session, then remove the workspace registration.
-     *
-     * The registration is removed only when every archive succeeded: a failed
-     * archive must not leave unarchived sessions stranded under Ungrouped. Each
-     * refusal is logged with its session id; the notice carries the count.
-     * @param {ClientContext} ctx
-     * @param {Translate} t
-     * @param {string} workspaceId
-     * @param {readonly string[]} sessionIds
-     */
-    async function archiveWorkspace(ctx, t, workspaceId, sessionIds) {
-      if (inFlight.has(workspaceId)) return
-      inFlight.add(workspaceId)
-      try {
-        /** @type {Array<{ sessionId: string, reason: unknown }>} */
-        const failures = []
-        let archived = 0
-        for (const sessionId of sessionIds) {
+          let hidden = []
           try {
-            // No `stopActivity`: the Host refuses a busy Session instead of
-            // interrupting it. Stopping work is a per-session confirmation in
-            // DSH's own archive flow, not something a bulk click should do.
-            await ctx.uiWorkspace.archiveSession(sessionId)
-            archived += 1
-          } catch (reason) {
-            failures.push({ sessionId, reason })
+            hidden = await fetchHidden(signal)
+          } catch (error) {
+            // A missing/slow Host half must not remove the archive action; the
+            // command fallback still lists hidden workspaces.
+            if (signal.aborted) throw error
           }
-        }
-        for (const failure of failures) {
-          console.warn(`[workspace-archiver] could not archive ${failure.sessionId}:`, failure.reason)
-        }
-        if (failures.length > 0) {
-          ctx.contextMenus.notify(t('toast.blocked', { n: failures.length }), false)
-          return
-        }
-        try {
-          await ctx.workspaces.delete(workspaceId)
-        } catch (reason) {
-          console.warn('[workspace-archiver] could not remove the workspace registration:', reason)
-          ctx.contextMenus.notify(t('toast.removeFailed'), false)
-          return
-        }
-        ctx.contextMenus.notify(
-          archived === 0
-            ? t('toast.hidden')
-            : t(archived === 1 ? 'toast.archived.one' : 'toast.archived.other', { n: archived }),
-          true,
-        )
-      } finally {
-        inFlight.delete(workspaceId)
+          if (hidden.length > 0) {
+            actions.push({
+              id: 'restore-workspaces',
+              label: t('menu.restore', { n: hidden.length }),
+              separatorBefore: true,
+              children: hidden.map(record => ({
+                id: `restore:${record.id}`,
+                label: t('menu.restoreItem', { title: record.title || record.path, n: record.sessionCount }),
+                run: () => restoreWorkspace(ctx, t, record),
+              })),
+            })
+          }
+          return actions
+        },
       }
     }
 
     return {
       name: PLUGIN_ID,
-      inject: ['contextMenus', 'workspaces', 'uiWorkspace', 'locale'],
+      inject: ['contextMenus', 'workspaces', 'sessions', 'uiWorkspace', 'locale'],
       /**
        * @param {ClientContext} ctx
        */

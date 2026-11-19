@@ -1,9 +1,10 @@
 # Contributing
 
-Thanks for improving `dsh-workspace-archiver`. This project is a DSH bundle with a
-zero-build Client half: `index.js` and `client.js` are the source and the shipped
-artifacts at the same time. The plugin archives a workspace's sessions and removes
-its registration; keep that destructive path conservative and tested.
+Thanks for improving `dsh-workspace-archiver`. This project is a zero-build DSH
+bundle: `index.js`, `client.js`, and `src/*.js` are the source and the shipped
+artifacts at the same time. The Host archives a workspace's sessions, persists its
+membership, and removes the registration; restore recreates it and reattaches the
+sessions. Keep that reversible path conservative and tested.
 
 ## Setup
 
@@ -40,9 +41,14 @@ Open one PR with the new README and the language-bar updates.
 - **`client.js` must not declare top-level bindings.** Combo responses concatenate
   several bundle scripts, so everything except the `window.__ModuleLoader__.load`
   call lives inside `factory`. A top-level `const` can collide with another plugin.
-- Use official DSH extension points: `ctx.contextMenus`, `ctx.uiWorkspace`,
-  `ctx.workspaces.list`, `ctx.locale`. Do not hook the shipped sidebar's DOM or
-  register into a private slot.
+- Use official DSH extension points: `ctx.contextMenus`, the authenticated
+  `ctx.connection.fetch` routes, `workspaceRegistry`, `Workspace.attachSession`,
+  `ctx.workspaces.list`, `ctx.locale`, and `ctx.commands`. Do not hook the shipped
+  sidebar's DOM or register into a private slot.
+- Host mutations are serialized. Keep the archive guarantee: a failed session
+  archive must leave the workspace and the hidden record untouched.
+- Hidden records are written with mode `0600` and contain no credentials or
+  conversation content. Do not log their full contents.
 - Comments explain *why* (ordering, lifecycle, API ownership), not what the next
   line obviously does.
 - Keep user-visible copy in the `en`/`zh` dictionaries; keys must stay aligned.
@@ -51,9 +57,13 @@ Open one PR with the new README and the language-bar updates.
 
 Add or update tests when changing:
 
-- the context-menu target, order, label, danger styling, or visibility rules;
-- the archive-then-delete sequence, abort-on-failure behavior, registration
-  removal, or duplicate-run guard;
+- the context-menu target, order, label, danger styling, restore submenu, or
+  visibility rules;
+- the Host archive-then-persist-then-delete sequence, abort-on-failure behavior,
+  delete-failure cleanup, restore via `create` + `attachSession` +
+  `unarchiveSession`, or order anchor;
+- hidden-record persistence and permissions; authenticated routes; the slash
+  command;
 - dictionary keys or language coverage;
 - `package.json`, the bundle patch, locale metadata, the icon, or the detail image.
 
@@ -84,8 +94,8 @@ Be respectful and constructive; see [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
 - Run `npm pack --dry-run` and confirm the runtime files, `docs/`, locale files,
   and icon are included, and `dev.patch.yml` is not.
 - Install the packed or linked bundle in a scratch profile and verify the menu,
-  row removal, notice, blocked-running-session behavior, and detail page (see
-  `docs/verification.md`).
+  row removal, restore submenu/command, blocked-running-session behavior, hidden
+  record file, and detail page (see `docs/verification.md`).
 
 ## Security reports
 

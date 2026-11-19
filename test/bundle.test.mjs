@@ -32,13 +32,13 @@ test('manifest carries the public repository metadata', async () => {
   assert.equal(pkg.bugs.url, 'https://github.com/PandaBoby/dsh-workspace-archiver/issues')
   assert.equal(pkg.scripts.check, 'node test/support/check-syntax.mjs')
   assert.equal(pkg.scripts.pretest, 'npm run check')
-  assert.match(pkg.scripts.test, /node --test test\/bundle\.test\.mjs test\/client\.test\.mjs/)
+  assert.match(pkg.scripts.test, /node --test test\/bundle\.test\.mjs test\/client\.test\.mjs test\/host\.test\.mjs/)
 })
 
 test('published files cover every runtime and display resource', async () => {
   const pkg = JSON.parse(await read('../package.json'))
   for (const required of [
-    'index.js', 'client.js', 'cordis.patch.yml', 'icon.svg', 'locale/*.json', 'docs', 'test',
+    'index.js', 'client.js', 'src', 'cordis.patch.yml', 'icon.svg', 'locale/*.json', 'docs', 'test',
     'README.md', 'README.en.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'SECURITY.md',
     'CODE_OF_CONDUCT.md', 'LICENSE',
   ]) {
@@ -60,11 +60,17 @@ test('client artifact is a loader script with no Harness module requests', async
   assert.doesNotMatch(client, /\bReact\b/)
 })
 
-test('host artifact is a hand-written ESM module with no behaviour', async () => {
+test('host artifact declares the Host services and mounts both entry points', async () => {
   const host = await read('../index.js')
   assert.match(host, /export const name = 'workspace-archiver'/)
-  assert.match(host, /export function apply\(\) \{\}/)
-  assert.doesNotMatch(host, /export const inject/)
+  assert.match(host, /export const inject = \['connection', 'workspaceRegistry', 'commands'\]/)
+  assert.match(host, /export function apply\(/)
+  assert.match(host, /registerWorkspaceArchiverRoutes/)
+  assert.match(host, /createWorkspaceArchiverCommand/)
+  for (const file of ['src/archiver.js', 'src/store.js', 'src/routes.js', 'src/command.js']) {
+    const source = await read(`../${file}`)
+    assert.ok(source.length > 200, `${file} looks empty`)
+  }
 })
 
 test('both locales carry display metadata and the detail document', async () => {

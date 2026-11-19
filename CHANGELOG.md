@@ -6,6 +6,39 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-19
+
+### Added
+
+- Reversible workspace archiving. The Host archives every member session, persists the
+  workspace path, title, order anchor, and session ids, then removes the registration.
+- Restore: recreate the workspace, reattach the stored sessions with
+  `Workspace.attachSession`, unarchive them, and best-effort restore its position.
+- Authenticated Host routes (`ctx.connection.fetch.register`) for state, archive, and
+  restore, plus a `/workspace-archiver [restore <id|index>]` command for the case where
+  every workspace row is hidden.
+- A restore submenu in every workspace row's context menu, backed by the Host state route.
+- Hidden records persisted at `$DSH_HOME/workspace-archiver/hidden.json` with mode 0600.
+- Host tests for archive/restore, blocked sessions, delete failure, persistence, routes,
+  and the command, alongside the existing Client/packaging tests (32 total).
+
+### Changed
+
+- Archive and delete moved from the browser to the Host, so membership, archive, and
+  registration removal share one serialized operation.
+- A failed session archive leaves the workspace untouched and writes no hidden record.
+
+### Fixed
+
+- The 0.2.0 one-way archive could not restore workspace membership; this release replaces
+  that behavior with a restorable record.
+
+### Known limitations
+
+- Restore requires the original directory and a resolvable session cwd.
+- The hidden record is local plugin state; deleting it loses the plugin's restore path but
+  not the directory or session logs.
+
 ## [0.2.0] - 2026-11-19
 
 ### Changed

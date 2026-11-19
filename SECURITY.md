@@ -3,7 +3,7 @@
 ## Supported versions
 
 Security fixes are applied to the latest published minor line. The repository is
-currently on the 0.2.x line; older snapshots may not receive fixes.
+currently on the 0.3.x line; older snapshots may not receive fixes.
 
 ## Reporting a vulnerability
 
@@ -19,37 +19,46 @@ No response-time or bounty guarantee is implied.
 
 ## Scope and boundaries
 
-This bundle archives a workspace's sessions and removes the workspace
-registration. It does not add a privilege boundary of its own:
+This bundle archives a workspace's sessions and removes its registration, and
+can restore both from a Host-held record. It does not add a privilege boundary
+of its own:
 
-- It reads workspace rows, session ids, and the registry-global archive set
-  through `ctx.workspaces.list`.
-- It calls `ctx.uiWorkspace.archiveSession` and `ctx.workspaces.delete`, which
-  reach the Host Workspace Controller through generated Remote endpoints. **The
-  Host enforces the current peer's permissions**; the plugin cannot archive or
-  delete a workspace the peer is not allowed to operate on.
+- The browser calls authenticated Host routes registered through
+  `ctx.connection.fetch.register`. Connection owns Host/Origin checks and browser
+  authentication; the plugin adds no separate token layer. The routes are
+  intended for the trusted owner Web UI, like the shipped settings routes.
+- The Host calls `workspaceRegistry.archiveSession`, `unarchiveSession`,
+  `create`, `delete`, `insertBefore`, and `Workspace.attachSession`. These are
+  the same Host services the registry exposes; the plugin does not modify the
+  registry's storage directly.
 - It does not read files, credentials, environment variables, or network
-  resources, and it does not send data anywhere.
+  resources, and it does not send data anywhere. `Workspace.attachSession` reads
+  a session header's cwd and validates that the directory still resolves; that is
+  the only filesystem check.
 - Removing the registration keeps the directory and every session log. It does
   **not** delete files or session history.
 - It never passes `stopActivity: true`. Sessions with running work are refused by
-  the Host; if any archive fails, the workspace is left in place and the notice
-  reports the blocked count.
-- The archive set is global. Unarchiving an old session after the workspace was
-  removed puts it under Ungrouped; membership is not restored by any public API.
+  the Host; if any archive fails, the workspace and hidden record are left
+  untouched.
+- The hidden record file (`$DSH_HOME/workspace-archiver/hidden.json`) contains
+  workspace paths, titles, order anchors, and session ids — **no credentials or
+  conversation content**. It is created with mode `0600` in a `0700` directory.
+  Deleting it removes the plugin's restore path, not the directory or logs.
 
-The risky operation is workspace removal: a single click archives the
-workspace's sessions and deletes its registration. The row disappears and
-**cannot be restored through a public API**; re-adding the directory creates a
-new, empty workspace. Treat a directory/data backup as part of archiving.
+The risky operations are workspace removal and restore: a single archive click
+archives the sessions and deletes the registration; restore recreates the
+workspace and reattaches sessions. Both are limited to the authenticated Host
+route/command surface and are not model-visible.
 
 Out of scope: a compromised OS account or browser, a malicious DSH build or
 another plugin running with the same privileges, DevTools manipulation while the
-page is open, and an operator who deliberately archives and then loses access to
-their own profile.
+page is open, a lost/tampered hidden-record file, and an operator who deliberately
+archives and then loses access to their own profile.
 
 ## Handling exposed data
 
-The plugin handles no secrets. If a bug report or log contains session titles,
-workspace paths, or conversation excerpts, redact them before posting publicly;
-use the private advisory channel instead.
+The plugin handles no secrets. The hidden file can contain workspace paths,
+titles, and session ids; if it is exposed, those metadata facts are exposed, not
+session contents. If a bug report or log contains session titles, workspace
+paths, or conversation excerpts, redact them before posting publicly; use the
+private advisory channel instead.

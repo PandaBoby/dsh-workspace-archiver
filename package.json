@@ -1,7 +1,7 @@
 {
   "name": "dsh-workspace-archiver",
-  "version": "0.2.0",
-  "description": "DSH bundle that archives a workspace's sessions and hides its sidebar row by removing the workspace registration.",
+  "version": "0.3.0",
+  "description": "DSH bundle that archives a workspace, hides its sidebar row, and restores the workspace with its sessions from a Host-held record.",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -14,6 +14,7 @@
   "files": [
     "index.js",
     "client.js",
+    "src",
     "cordis.patch.yml",
     "locale/*.json",
     "docs",
@@ -47,7 +48,7 @@
   "scripts": {
     "check": "node test/support/check-syntax.mjs",
     "pretest": "npm run check",
-    "test": "node --test test/bundle.test.mjs test/client.test.mjs"
+    "test": "node --test test/bundle.test.mjs test/client.test.mjs test/host.test.mjs"
   },
   "keywords": [
     "deepseek-harness",
@@ -56,6 +57,7 @@
     "dsh-bundle",
     "workspace",
     "archive",
+    "restore",
     "hide-workspace",
     "context-menu",
     "sidebar"

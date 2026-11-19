@@ -2,7 +2,7 @@
 
 <h1>dsh-workspace-archiver</h1>
 
-<p><strong>DSH sidebar: archive and hide a workspace row — archive every session, then remove the workspace registration.</strong></p>
+<p><strong>DSH sidebar: archive and hide a workspace, then restore it together with its sessions.</strong></p>
 
 <p><a href="README.en.md">English</a> · <a href="README.md">简体中文</a></p>
 
@@ -17,6 +17,7 @@
 <p>
   <a href="#quick-start">Quick start</a> ·
   <a href="#how-it-works">How it works</a> ·
+  <a href="#restore">Restore</a> ·
   <a href="#known-limitations">Known limitations</a> ·
   <a href="#troubleshooting">Troubleshooting</a> ·
   <a href="#development-and-testing">Development and testing</a>
@@ -30,12 +31,13 @@
 
 > [!IMPORTANT]
 > This repository is the only official source: <https://github.com/PandaBoby/dsh-workspace-archiver>.
-> Archiving a single session is already a DSH feature. This bundle adds a **workspace-level
-> action**: archive every session of the workspace, then remove the workspace registration so
-> the row leaves the sidebar.
-> This is a **one-way archive**: the directory and every session log are kept, but workspace
-> membership cannot be restored through any public API, and re-adding the directory creates a
-> new, empty workspace. See [Known limitations](#known-limitations).
+> Archiving a single session is already a DSH feature. This bundle adds a **reversible
+> workspace-level archive**: the Host archives every session, keeps the workspace path,
+> title, order, and session ids in a hidden record, then removes the registration; restore
+> recreates the workspace, reattaches the sessions with `Workspace.attachSession`, and
+> unarchives the sessions this run archived.
+> Restore needs the original directory and a resolvable session cwd. Deleting the hidden
+> record file removes the plugin's ability to restore the registration.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/PandaBoby/dsh-workspace-archiver/main/docs/preview.svg" alt="A workspace row context menu with the archive-and-hide action highlighted" width="100%" />
@@ -43,19 +45,21 @@
 <p align="center"><sub>Illustration: “Archive and hide this workspace” in a workspace row's context menu (highlighted row). This is not a live screenshot.</sub></p>
 
 `dsh-workspace-archiver` adds a workspace-row action to the DSH sidebar. In a **workspace
-row**'s context menu (or the hover `…` menu), it first archives every unarchived session of
-that workspace, then removes the workspace registration. When both steps succeed, the whole row
-disappears and those sessions no longer show up in the default view.
+row**'s context menu (or the hover `…` menu), it archives every session of that workspace and
+removes the registration so the whole row disappears. Later, **Restore archived workspace** in
+any workspace menu — or the `/workspace-archiver` command when every row is hidden — recreates
+the row and puts the stored sessions back.
 
-DSH already archives individual sessions, and the shipped **Delete workspace** action removes a
-registration. What this bundle adds is **one click that does both**, so removing the row does
-not dump unarchived sessions into Ungrouped.
+DSH already archives individual sessions and ships a **Delete workspace** action. What this
+bundle adds is **persisted membership**: after deleting the registration it can recreate the
+workspace, reattach the old sessions in order, and unarchive them instead of leaving them
+under Ungrouped.
 
 > The Chinese README is the canonical version. This English translation is kept in sync.
 >
 > Status: the API surface and packaging were checked against DSH `0.2.2-rc.5`; the syntax gate
-> and automated tests pass. **The bundle was not installed into a live profile**, so the menu,
-> notice, and row removal are still unverified in the UI. See
+> and **32/32** automated tests pass. **The bundle was not installed into a live profile**, so
+> the menu, restore flow, and notices are still unverified in the UI. See
 > [docs/verification.md](docs/verification.md).
 
 <details>
@@ -65,6 +69,8 @@ not dump unarchived sessions into Ungrouped.
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
 - [How it works](#how-it-works)
+- [Restore](#restore)
+- [Hidden record](#hidden-record)
 - [Relationship to official APIs](#relationship-to-official-apis)
 - [Known limitations](#known-limitations)
 - [Troubleshooting](#troubleshooting)
@@ -82,30 +88,34 @@ not dump unarchived sessions into Ungrouped.
 - **Workspace-level entry.** Appears only in a workspace row's context menu or `…` menu, at
   order 200 — between the shipped **Rename** (100) and **Delete** (300).
 - **Archive first, remove second.** Reads the workspace's `sessionIds`, skips already archived
-  sessions, archives the rest one by one, and only then calls `ctx.workspaces.delete` to remove
+  sessions, archives the rest one by one, then has the Host persist a hidden record and delete
   the registration.
 - **Abort on failure.** If any session cannot be archived (running work, missing permission),
-  the workspace is **not** removed. The notice reports how many sessions blocked the action and
-  the console has the per-session reason, so the row can never disappear while unarchived
-  sessions are stranded.
-- **Directory and logs retained.** Only the workspace registration is removed, matching the
-  shipped `delete` semantics: the directory, session logs, and archive set remain.
+  the workspace is **not** removed and no hidden record is written. The notice reports how many
+  sessions blocked the action and the console has the per-session reason.
+- **Restorable.** Every workspace menu lists archived workspaces. Restore recreates the
+  workspace, reattaches the stored sessions in order, unarchives the sessions this run archived, and best-effort restores
+  the workspace order.
+- **All-hidden fallback.** If every workspace row is hidden, `/workspace-archiver` lists the
+  hidden records and `/workspace-archiver restore <id|index>` restores one.
+- **Directory and logs retained.** Only the workspace registration is removed; the directory,
+  session logs, and archive set remain.
 - **Running work is not stopped silently.** `stopActivity` is never passed; stopping a session
   is an explicit confirmation in DSH's per-session archive flow.
-- **Duplicate-click guard.** A second click on the same workspace is ignored while the first run
-  is still awaiting the Host.
-- **English and Chinese.** Menu and notice copy is registered through `ctx.locale`.
-- **Zero build.** `index.js` / `client.js` are the source and the shipped artifacts at the same
-  time; no dependencies, transpiler, or lockfile.
+- **Duplicate-click guard.** A second click on the same workspace or hidden record is ignored
+  while the first operation is pending.
+- **English/Chinese, zero build.** Copy goes through `ctx.locale`; `index.js`, `client.js`, and
+  `src/*.js` are the source and the shipped artifacts, with no dependencies or transpiler.
 
 ## Requirements
 
 | Component | Requirement |
 |---|---|
 | DSH | `>= 0.2.2-rc.1`; API surface checked against `0.2.2-rc.5` |
-| Node.js | `>= 20` for the test suite only; the plugin runs in the DSH Web/Desktop page |
-| Extra services | None; uses the profile's Workspace Controller, Context Menu, and Locale |
-| Verification | Automated tests pass; not yet installed in a live profile — see [docs/verification.md](docs/verification.md) |
+| Node.js | `>= 20` for the test suite only; the plugin runs in the DSH Host and Web/Desktop page |
+| Host services | `connection`, `workspaceRegistry`, `commands` (shipped by the Web profile) |
+| Writable path | Hidden records at `$DSH_HOME/workspace-archiver/hidden.json` (default `~/.dsh/...`) |
+| Verification | 32/32 tests pass; not yet installed in a live profile — see [docs/verification.md](docs/verification.md) |
 
 ## Quick start
 
@@ -164,83 +174,130 @@ a file and reload the page.
 ```mermaid
 flowchart TD
   A[Right-click a workspace row] --> B[contextMenus target: workspace]
-  B --> C[workspaces.list reads unarchived sessions]
-  C --> D[uiWorkspace.archiveSession one by one]
-  D -->|all succeeded| E[workspaces.delete removes the registration]
-  E --> F[Row gone; directory and logs kept]
-  D -->|any failure| G[Abort; row stays and the notice reports the count]
+  B --> C[POST /api/workspace-archiver/action]
+  C --> D[workspaceRegistry.archiveSession one by one]
+  D -->|all succeeded| E[write hidden.json]
+  E --> F[workspaceRegistry.delete]
+  F --> G[Row gone; directory and logs kept]
+  D -->|any failure| H[Abort; row stays and the notice reports the count]
+
+  I[Restore archived workspace / command] --> J[workspaceRegistry.create]
+  J --> K[Workspace.attachSession one by one]
+  K --> L[unarchiveSession one by one]
+  L --> M[insertBefore restores order]
+  M --> N[remove hidden record]
 ```
 
 1. DSH's workspace row dispatches a `{ kind: 'workspace' }` context-menu target itself; the
    plugin registers a contribution for that target and never takes over the DOM.
-2. When the menu opens, the plugin reads the workspace's `sessionIds` and the registry-global
-   archive set from `ctx.workspaces.list`.
-3. On click, each remaining session is awaited through `ctx.uiWorkspace.archiveSession(id)`.
-   That is the official UI service: it delegates to the Workspace Controller, reaches the Host
-   via the `workspace/archiveSession` Remote, and finally calls
-   `workspaceRegistry.archiveSession`. It also clears the conversation panel when the archived
-   session is the one on screen.
-4. Only when every archive succeeds does the plugin call `ctx.workspaces.delete(workspaceId)` —
-   the Client entry of the shipped **Delete workspace** action. It removes the registration and
-   keeps the directory and session logs; the Client model removes the row.
-5. Any archive failure aborts before the delete. The notice reports the blocked count and the
-   console logs each session's reason.
+2. When the menu opens, the plugin reads the unarchived count from `ctx.workspaces.list` and
+   fetches hidden records from `GET /api/workspace-archiver/state`.
+3. Archive posts `{action:'archive', workspaceId}`. The Host archives each candidate with
+   `workspaceRegistry.archiveSession`; only after every archive succeeds does it persist
+   `{path,title,anchor,sessionIds}` and call `delete`. A failure leaves the workspace untouched.
+4. Restore posts `{action:'restore', hiddenId}`. The Host calls `workspaceRegistry.create`
+   (or reuses a workspace already registered at that path), attaches sessions in reverse order
+   (the entity prepends), unarchives them, restores the order around the saved anchor, and
+   removes the hidden record.
+5. If every workspace is hidden, the `/workspace-archiver` command provides the same list and
+   restore path.
+
+## Restore
+
+Choose **Restore archived workspace** in a workspace row's `…` menu, then pick the target. Or:
+
+```text
+/workspace-archiver                         list archived workspaces
+/workspace-archiver restore <id|index>      restore one
+```
+
+What restore does:
+
+- recreates the row from the saved path/title;
+- reattaches the old sessions in their saved order and unarchives only the ones this run archived; a session archived separately before the workspace archive stays archived;
+- if a session's stored cwd no longer exists or does not resolve, `attachSession` rejects it;
+  the result reports how many were not reattached, and those sessions stay archived with their
+  logs intact;
+- a session that was already archived separately before the workspace archive is reattached but
+  stays archived; only the sessions this run archived are unarchived;
+- if a workspace already exists at the same path, restore reuses it instead of creating a
+  second one.
+
+## Hidden record
+
+The Host stores hidden records at:
+
+```text
+$DSH_HOME/workspace-archiver/hidden.json
+```
+
+The default is `~/.dsh/workspace-archiver/hidden.json`; the file is created with mode `0600`
+and its directory with `0700`. It contains workspace paths, titles, order anchors, session ids,
+and timestamps — **no credentials**.
+
+- This file is the only source of workspace membership for restore. Deleting it leaves the
+  directory and session logs untouched, but the plugin can no longer restore the registration.
+- Writes are serialized and only happen before the registration is deleted; a write failure
+  aborts the archive.
+- Keep the file when migrating a profile if you want restore to survive the move.
 
 ## Relationship to official APIs
 
 | Official capability | How this bundle uses it |
 |---|---|
 | `ctx.contextMenus.register({ target: 'workspace' })` | The workspace-row menu contribution; the shipped row component already dispatches this target |
-| `ctx.uiWorkspace.archiveSession` | The same UI service the shipped per-session archive button uses, including main-view clearing |
-| `ctx.workspaces.list` | Workspace rows, membership, and the registry-global archive set (read-only) |
-| `ctx.workspaces.delete` | The Client entry of **Delete workspace**; removes the registration and keeps the directory and logs |
-| `ctx.locale.register` / `bind` | Bilingual copy and live language switching |
+| `ctx.connection.fetch.register` | Authenticated browser routes; Connection owns Host/Origin checks and browser authentication |
+| `workspaceRegistry.archiveSession` / `unarchiveSession` | Session archive/restore |
+| `workspaceRegistry.create` / `delete` / `insertBefore` | Recreate/remove the registration and restore order |
+| `Workspace.attachSession` | Host-side reattachment; the Client has no Remote for it |
+| `ctx.workspaces.list` | Workspace rows, membership, and the archive set (read-only) |
+| `ctx.locale` / `ctx.commands` | Bilingual copy and the all-hidden command fallback |
 | Official bundle contract | `dsh.bundle.patch`, `dsh.client`, `./client` export, `cordis.patch.yml`, `locale/*.json`, detail image, 36×36 icon |
 
-Official capabilities that do **not** exist in DSH `0.2.2-rc.5`, so nothing was invented to
-stand in for them:
+Official capabilities that do **not** exist in DSH `0.2.2-rc.5`:
 
-- **No workspace-level archive/hide API.** The only public operation that makes the row
-  disappear is `workspaces.delete` (the shipped **Delete workspace** action); it removes the
-  registration instead of marking it hidden.
-- **No public Client API to restore membership.** The Host `Workspace.attachSession` is not
-  exposed through the Remote, so the plugin cannot reattach old sessions to a re-created
-  workspace; there is no undo.
+- **No workspace-level archive/hide API.** The only public operation that removes a row is
+  `delete`; restoreability comes from the Host-held hidden record, not from registry state.
+- **No Client `attachSession`.** Restore must run on the Host, which is why this bundle has a
+  Host half and authenticated routes.
 - **No `ctx.ui.registerMenuItem`, no `sidebar.workspaces.menu.item`.** Workspace menus are the
   `workspace` target of `ctx.contextMenus`; `sidebar.workspaces.session.menu.item` is the
   legacy React menu of a session row.
-- **No per-workspace confirmation dialog.** DSH confirms per session/operation; this bundle uses
-  a `danger` menu item with an explicit label instead of a custom modal.
-- **External plugins cannot import `dsh-client-ui-primitives`** (DSH asks plugins to write their
-  own controls), so the menu item has no icon.
+- **No per-workspace confirmation dialog.** The archive item is danger-styled with an explicit
+  label; there is no custom modal.
+- **External plugins cannot import `dsh-client-ui-primitives`**, so the menu item has no icon.
 
 ## Known limitations
 
-- **One-way archive, no undo.** A removed registration cannot be restored through a public API.
-  Re-adding the directory creates a new, empty workspace; old sessions are not reattached.
-- **Old sessions reappear under Ungrouped if unarchived.** The archive set is global. After
-  re-adding the directory, unarchiving an old session puts it under Ungrouped, not the new
-  workspace.
-- **A running session blocks the whole action.** If any candidate fails to archive, the
-  workspace stays as it is. Stop or wait for those sessions first, or use the shipped
-  per-session archive confirmation that offers “stop and archive”.
+- **Restore needs the original directory.** `workspaceRegistry.create` resolves the real path
+  and requires a valid directory; a missing/moved directory fails the restore and keeps the
+  record.
+- **Some sessions may not reattach.** `attachSession` re-resolves the stored cwd; a missing or
+  invalid cwd skips that session and reports it. Its log stays intact.
+- **A same-path workspace merges.** If you re-add the directory before restoring, the existing
+  workspace is reused and the stored sessions are prepended; it is not renamed or recreated.
+- **A running session blocks the whole archive.** If any candidate fails, the workspace stays
+  as is. Stop or wait for those sessions, or use the shipped per-session “stop and archive”
+  confirmation.
 - **A failed delete leaves “sessions archived, row still present”.** Usually a permission or
-  Host failure; retry (already archived sessions are skipped) or unarchive manually.
-- **The action looks destructive because it is.** It is the official `delete` plus session
-  archiving; verify in a scratch profile or a test workspace first.
+  Host failure; retry (archived sessions are skipped) or unarchive manually.
+- **The hidden record is local plugin state.** It is not part of the registry and does not
+  migrate with it; losing the file loses the plugin's restore path (the data remains).
+- **The command needs a session/composer.** When every row is hidden, use
+  `/workspace-archiver`; a UI without a composer has no fallback.
 - **The menu item has no icon.** Official icon components are not importable by external
-  plugins; adding one would require a one-off React component, and the browser half stays
-  React-free on purpose.
+  plugins; adding one would require a one-off React component.
 
 ## Troubleshooting
 
 | Symptom | What to do |
 |---|---|
-| No menu item | Confirm the plugin is enabled and reload the page; right-click a **workspace row**; it does not appear for a workspace that is no longer listed |
+| No menu item | Confirm the plugin is enabled and reload; right-click a **workspace row**; a missing Host half makes archive requests fail with a notice |
 | The row did not disappear | The notice distinguishes an archive failure from a delete failure; archive failures are usually running sessions, with per-session reasons in the console |
-| The row is gone but old sessions show under Ungrouped | After re-adding the directory, unarchived old sessions land in Ungrouped; membership is not restored — see [Known limitations](#known-limitations) |
-| Re-adding the directory gives an empty workspace | Expected: `create` starts with an empty member list and does not scan historical sessions |
-| Trying to restore the workspace | There is no undo; re-adding the directory creates an empty workspace and old sessions stay in the archive set / Ungrouped |
+| The restore submenu is empty | There are no hidden records, or the Host state route failed; use `/workspace-archiver` to check |
+| Restore failed | Usually the original directory was removed/moved or a cwd no longer resolves; the record is kept, so fix the directory and retry |
+| The restored workspace is empty | Sessions failed to reattach; the notice/command reports the count; check each session's cwd |
+| Every workspace is gone | Type `/workspace-archiver` in the composer and restore by index/id |
 | Installing changed nothing | Check that **Workspace archiver** is enabled in Plugins; toggle it or reload; verify the package's `client.js` is linked |
 
 ## Development and testing
@@ -248,14 +305,14 @@ stand in for them:
 Zero build, zero dependencies. Node.js >= 20 is needed only for the tests:
 
 ```sh
-npm run check     # client.js syntax, index.js exports, JSON, patch row
-npm test          # syntax gate + packaging and behavior tests
+npm run check     # Host/Client syntax, exports, JSON, patch row
+npm test          # syntax gate + packaging, Host archive/restore, Client behavior (32 tests)
 ```
 
 CI runs `npm test` on Node 20, 22, and 24. Before publishing:
 
 ```sh
-npm pack --dry-run
+npm pack --dry-run     # 25 files; src/ ships with the bundle
 ```
 
 The live-profile checklist is in [docs/verification.md](docs/verification.md).
@@ -271,26 +328,28 @@ The live-profile checklist is in [docs/verification.md](docs/verification.md).
 
 ## Security
 
-The plugin is offline: it reads no files, credentials, or environment variables, and sends no
-data anywhere. It reads workspace/session ids and the archive set, archives sessions through
-`ctx.uiWorkspace.archiveSession`, and removes the workspace registration through
-`ctx.workspaces.delete`. The Host enforces the current peer's permissions; the plugin does not
-bypass them. Removing the registration keeps the directory and session logs but **cannot be
-undone through a public API**; treat a directory/data backup as part of archiving. Report
-vulnerabilities through the private channel in [SECURITY.md](SECURITY.md).
+The plugin makes no outbound network requests and reads no credentials. The Host routes read
+workspace/session ids and hidden records and call the Workspace Registry; the hidden file
+contains paths, titles, and session ids (no secrets) with mode `0600`. The routes rely on DSH
+Connection Host/Origin checks and browser authentication and maintain no separate token; they
+are intended for a trusted profile/browser. Removing a registration and restoring it keep the
+directory and session logs; losing the hidden file loses the plugin's restore ability, not the
+data. Report vulnerabilities through the private channel in [SECURITY.md](SECURITY.md).
 
 ## Contributing
 
 Issues and pull requests are welcome; read [CONTRIBUTING.md](CONTRIBUTING.md) first. Behavior
-changes need tests and a `CHANGELOG.md` entry. Keep the Chinese and English READMEs in the same
+changes need tests and a `CHANGELOG.md` entry; the Host archive/restore path must keep the
+“failure does not lose membership” guarantee. Keep the Chinese and English READMEs in the same
 structure.
 
 ## Disclaimer
 
-Provided as-is, without warranty of any kind. Archiving and hiding is a non-undoable workspace
-registration removal; sessions can be unarchived individually, but membership is not restored.
+Provided as-is, without warranty of any kind. Archiving removes the workspace registration;
+restore depends on the directory, session cwd, and hidden record file still being available.
 Verify in a test profile before using it on a production profile. Losses caused by unintended
-archives, permission configuration, or third-party plugins are the user's responsibility.
+archives, directory changes, a lost hidden record, or third-party plugins are the user's
+responsibility.
 
 ## License
 
