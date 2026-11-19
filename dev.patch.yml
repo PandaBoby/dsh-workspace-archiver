@@ -2,10 +2,10 @@
 # profile. The path-like row makes client-modules walk up from index.js to this
 # package.json, so the browser half is discovered from the same checkout.
 #
-# Replace the absolute path if the checkout moves, then run from a DSH source
-# checkout:
+# Replace the placeholder below with this checkout's absolute path, then run
+# from a DSH source checkout:
 #
-#   pnpm dsh web --patch /Users/amireux/Code/DSH/dsh-workspace-archiver/dev.patch.yml
+#   pnpm dsh web --patch /absolute/path/to/dsh-workspace-archiver/dev.patch.yml
 - insert:
     - id: workspace-archiver-dev
-      name: '/Users/amireux/Code/DSH/dsh-workspace-archiver/index.js'
+      name: '/absolute/path/to/dsh-workspace-archiver/index.js'

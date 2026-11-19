@@ -121,7 +121,7 @@ dsh plugin --profile <profile> add dsh-workspace-archiver
 pnpm dsh web --patch /absolute/path/to/dsh-workspace-archiver/dev.patch.yml
 ```
 
-`dev.patch.yml` 用绝对路径挂载 `index.js`；client-modules 从该路径向上找到 `package.json`，读取 `dsh.client` 并加载 `client.js`。这条路径要求有 DSH 源码 checkout；纯运行时安装（Desktop）请走上面的安装方式。无需构建，改完文件刷新页面即可。
+先把 `dev.patch.yml` 里的 `/absolute/path/...` 换成本仓库的真实路径。该文件用绝对路径挂载 `index.js`；client-modules 从该路径向上找到 `package.json`，读取 `dsh.client` 并加载 `client.js`。这条路径要求有 DSH 源码 checkout；纯运行时安装（Desktop）请走上面的安装方式。无需构建，改完文件刷新页面即可。
 
 ## 工作原理
 

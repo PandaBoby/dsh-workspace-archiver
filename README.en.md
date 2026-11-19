@@ -145,7 +145,8 @@ From a DSH source checkout:
 pnpm dsh web --patch /absolute/path/to/dsh-workspace-archiver/dev.patch.yml
 ```
 
-`dev.patch.yml` mounts `index.js` by absolute path; client-modules walks up to `package.json`,
+Replace the `/absolute/path/...` placeholder in `dev.patch.yml` with this checkout's real path.
+The overlay mounts `index.js` by absolute path; client-modules walks up to `package.json`,
 reads `dsh.client`, and serves `client.js`. This path requires a DSH source checkout. For a
 pure-runtime Desktop install, use the install instructions above. There is no build step: save
 a file and reload the page.
