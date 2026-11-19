@@ -1,0 +1,75 @@
+{
+  "name": "dsh-workspace-archiver",
+  "version": "0.1.0",
+  "description": "DSH bundle that archives every session of one workspace from the workspace row's context menu, with an undo notice.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "docs",
+    "icon.svg",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "CODE_OF_CONDUCT.md",
+    "LICENSE",
+    "test"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-context-menu",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.2-rc.1"
+  },
+  "scripts": {
+    "check": "node test/support/check-syntax.mjs",
+    "pretest": "npm run check",
+    "test": "node --test test/bundle.test.mjs test/client.test.mjs"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "workspace",
+    "archive",
+    "context-menu",
+    "sidebar"
+  ],
+  "license": "MIT",
+  "author": "PandaBoby",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PandaBoby/dsh-workspace-archiver.git"
+  },
+  "homepage": "https://github.com/PandaBoby/dsh-workspace-archiver#readme",
+  "bugs": {
+    "url": "https://github.com/PandaBoby/dsh-workspace-archiver/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

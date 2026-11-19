@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Workspace archiver",
+    "description": "Adds “Archive sessions in this workspace” to a workspace row's context menu (right-click or the … button) in the sidebar. It archives every unarchived session of that workspace through the official archive UI service, reports the outcome in a notice, and offers Undo. Sessions with running work are skipped rather than stopped. The workspace row itself stays: DSH has no workspace-level hide, so a workspace whose sessions are all archived remains as an empty group. Undo exists because workspaceRegistry.unarchiveSession is a real DSH API.",
+    "detail": "docs/DETAIL.md"
+  }
+}

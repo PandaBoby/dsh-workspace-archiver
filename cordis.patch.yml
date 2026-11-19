@@ -1,0 +1,9 @@
+# dsh-workspace-archiver bundle patch.
+#
+# The row exists so the Loader mounts the package: client-modules reads
+# `dsh.client` from the manifest of every mounted package, and that is what
+# publishes the browser bundle. The visible behavior lives in `client.js`;
+# the Host half registers nothing.
+- insert:
+    - id: workspace-archiver
+      name: dsh-workspace-archiver

@@ -1,0 +1,11 @@
+# Development overlay: mounts this checkout without installing it into a
+# profile. The path-like row makes client-modules walk up from index.js to this
+# package.json, so the browser half is discovered from the same checkout.
+#
+# Replace the absolute path if the checkout moves, then run from a DSH source
+# checkout:
+#
+#   pnpm dsh web --patch /Users/amireux/Code/DSH/dsh-workspace-archiver/dev.patch.yml
+- insert:
+    - id: workspace-archiver-dev
+      name: '/Users/amireux/Code/DSH/dsh-workspace-archiver/index.js'
